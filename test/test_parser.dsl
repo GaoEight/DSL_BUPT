@@ -4,4 +4,4 @@ REG BOOL   flag True
 REG STRING copy $name
 REG BOOL   pass  EQUAL $score 95.5
 REG BOOL   high   GREATER $score 90
-REG BOOL   ok     GREATER_EQUAL $score 95.5
+REG BOOL   ok     GREATER_EQUAL $score 95.5git add .
