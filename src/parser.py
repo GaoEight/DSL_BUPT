@@ -174,12 +174,64 @@ class MiniInterp:
         if not self.vars.reg(name, val):   # 内部已做重名校验
             print(f"[ERROR] 变量 '{name}' 注册失败")
 
-    def _kw_speak(self, tail: str):
-        # TODO: 后面再填
-        pass
+    
 
     def _kw_input(self, tail: str):
         # TODO: 后面再填
         pass
 
+    # def _kw_speak(self, tail: str):
+        # TODO: 后面再填
+        # pass
+    def _kw_speak(self, tail: str):
+        try:
+            tokens = tokenize(tail)
+        except ValueError as e:
+            print(f"[SPEAK] {e}")
+            return
 
+        parts = []
+        for tok in tokens:
+            if tok.startswith('$'):          # 变量
+                val = self.vars.get(tok[1:])
+                if val is None:
+                    print(f"[SPEAK] 未定义变量: {tok}")
+                    return
+                # 类型格式化
+                if isinstance(val, str):
+                    parts.append(val)
+                elif isinstance(val, (int, float)):
+                    parts.append(f"{val:.2f}")
+                elif isinstance(val, bool):
+                    parts.append("true" if val else "false")
+                else:
+                    print(f"[SPEAK] 未知类型变量: {tok}")
+                    return
+            else:                            # 字符串字面量
+                parts.append(tok)
+        print(''.join(parts), end='')
+
+
+
+_TOKEN_RE = re.compile(r'"(.*?)"|(\$\w+)')
+
+
+def tokenize(line: str) -> list[str]:
+    out, last = [], 0
+    line = line.lstrip()          # 1. 行首空白直接丢
+    for m in _TOKEN_RE.finditer(line):
+        # 2. 当前匹配点前若全是空白，允许跳过
+        if m.start() != last and line[last:m.start()].isspace():
+            last = m.start()      # 游标跳到非空位置
+        if m.start() != last:     # 3. 仍有非空垃圾 → 报错
+            raise ValueError(f"非法片段: {line[last:m.start()]!r}")
+        # 4. 记录 token
+        last = m.end()
+        out.append(m.group(1) if m.group(1) is not None else m.group(2))
+
+    # 5. 尾部空白也允许
+    if line[last:].isspace():
+        return out
+    if last != len(line):
+        raise ValueError(f"非法片段: {line[last:]!r}")
+    return out
