@@ -177,8 +177,21 @@ class MiniInterp:
     
 
     def _kw_input(self, tail: str):
-        # TODO: 后面再填
-        pass
+        # tail = "name"
+        name = tail.strip()
+        if not name:
+            print("[ERROR] INPUT 缺少变量名")
+            return
+        if name not in self.vars._map:
+            print(f"[ERROR] 变量 '{name}' 未注册")
+            return
+        if not isinstance(self.vars._map[name], str):
+            print(f"[ERROR] 变量 '{name}' 必须是 STRING 类型")
+            return
+
+        # 读一行（保留空格，去掉末尾换行）
+        value = input().rstrip('\n')
+        self.vars._map[name] = value
 
     # def _kw_speak(self, tail: str):
         # TODO: 后面再填
