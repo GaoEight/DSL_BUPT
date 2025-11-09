@@ -120,11 +120,14 @@ class KeywordHub:
 
 
 class MiniInterp:
-    def __init__(self, vars: VarStore):
+    def __init__(self, vars: VarStore, is_student: bool, user_id: int):
         self.vars = vars
         self.kw   = KeywordHub()
         self._register_builtins()
+        self.func = Builtin.REGISTRY
         self.expr = ExprEval(vars)
+        self.is_student = is_student
+        self.user_id  = user_id
 
     def _register_builtins(self):
         self.kw.register("REG",   self._kw_reg)
@@ -135,12 +138,28 @@ class MiniInterp:
     def exec_line(self, line: str):
         line = line.strip()
         if not line or line.startswith("#"):
-            # 注释功能
             return
         parts = line.split(maxsplit=1)
         first, tail = (parts[0], parts[1]) if len(parts) == 2 else (parts[0], "")
-        self.kw.dispatch(first.upper(), tail)
 
+        # 1. 关键字优先
+        if first.upper() in self.kw._map:
+            self.kw.dispatch(first.upper(), tail)
+            return
+
+        # 2. 函数调用（首 token 是注册函数）
+        if first.upper() in self.func:
+            try:
+                result = self.expr.eval_expr(line)   # 整行当表达式算
+                # 结果直接落盘到默认变量 "_"，供后续 IF/PRINT 使用
+                self.vars.reg("_", result)
+            except Exception as e:
+                print(f"[ERROR] 函数执行失败: {e}")
+            return
+
+        # 3. 既不是关键字也不是函数
+        print(f"[ERROR] 未知指令: {first}")
+    
        # ---------- 关键字处理 ----------
     def _kw_reg(self, tail: str):
         # tail = "STRING A hello"  或  "STRING A $str1"  或  "BOOL flag EQUAL $x 30"

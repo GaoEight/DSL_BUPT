@@ -1,10 +1,7 @@
-REG STRING name "Alice"
-REG NUM    score 95.5
-REG BOOL   flag True
-REG STRING copy $name
-REG BOOL   pass  EQUAL $score 95.5
-REG BOOL   high   GREATER $score 90
-REG BOOL   ok     GREATER_EQUAL $score 
-SPEAK "Hello " "How are you! " "I am " $name
-INPUT name
-SPEAK "My name is" $name
+REG NUM score 85
+REG BOOL ok GREATER $score 80
+SPEAK "结果=" $ok
+# 直接调用函数
+GPA 1001
+REG BOOL high GREATER $_ 3.5
+SPEAK " 高GPA=" $high

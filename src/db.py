@@ -65,7 +65,7 @@ class SchoolDB:
                     id      INTEGER PRIMARY KEY AUTOINCREMENT,
                     name    TEXT NOT NULL,
                     password TEXT NOT NULL,
-                    email   TEXT UNIQUE NOT NULL,
+                    email   TEXT NOT NULL,
                     balance REAL DEFAULT 0.0,
                     gpa     REAL DEFAULT 0.0
                 );
@@ -78,7 +78,7 @@ class SchoolDB:
                     id      INTEGER PRIMARY KEY AUTOINCREMENT,
                     name    TEXT NOT NULL,
                     password TEXT NOT NULL,
-                    email   TEXT UNIQUE NOT NULL,
+                    email   TEXT NOT NULL,
                     balance REAL DEFAULT 0.0
                 );
                 """
@@ -125,34 +125,25 @@ class SchoolDB:
                 """
             )
     def register_student(self, name: str, pwd: str, email: str) -> int:
-        """返回新学生 id；邮箱重复抛 ValueError"""
+        """返回新学生 id；不再检查邮箱唯一"""
         with self as cur:
             h = hashlib.sha256(pwd.encode()).hexdigest()
-            try:
-                cur.execute(
-                    f"INSERT INTO {self.STUDENT_TABLE} (name, password, email) VALUES (?,?,?)",
-                    (name, h, email),
-                )
-                return cur.lastrowid  # 拿到 SQLite 自增 id
-            except sqlite3.IntegrityError as e:
-                if "UNIQUE" in str(e):
-                    raise ValueError("邮箱已存在") from e
-                raise
+            cur.execute(
+                f"INSERT INTO {self.STUDENT_TABLE} (name, password, email) VALUES (?,?,?)",
+                (name, h, email),
+            )
+            return cur.lastrowid
 
     def register_teacher(self, name: str, pwd: str, email: str) -> int:
-        """返回新老师 id；邮箱重复抛 ValueError"""
+        """返回新老师 id；不再检查邮箱唯一"""
         with self as cur:
             h = hashlib.sha256(pwd.encode()).hexdigest()
-            try:
-                cur.execute(
-                    f"INSERT INTO {self.TEACHER_TABLE} (name, password, email) VALUES (?,?,?)",
-                    (name, h, email),
-                )
-                return cur.lastrowid
-            except sqlite3.IntegrityError as e:
-                if "UNIQUE" in str(e):
-                    raise ValueError("邮箱已存在") from e
-                raise
+            cur.execute(
+                f"INSERT INTO {self.TEACHER_TABLE} (name, password, email) VALUES (?,?,?)",
+                (name, h, email),
+            )
+            return cur.lastrowid
+        
     def login_student(self, name: str, pwd: str) -> bool:
         h = hashlib.sha256(pwd.encode()).hexdigest()
         with self as cur:
@@ -329,5 +320,6 @@ def list_courses_cli(courses: List[Tuple[str, str, float]]) -> None:
     print("-" * 43)
     for c_name, t_name, credit in courses:
         print(f"{c_name:<20} {t_name or '—':<15} {credit:>6.1f}")
+
 
 
