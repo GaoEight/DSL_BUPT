@@ -1,10 +1,23 @@
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import re
 from typing import List, Any, Dict, Union, Optional, Callable
-
+from src.db import SchoolDB
 
 
 
 Val = Union[str, float, bool]
+
+class Runtime:
+    user_id: int
+    is_student: bool
+    db: SchoolDB
+
+    # 显式构造函数
+    def __init__(self, user_id: int, is_student: bool, db: SchoolDB):
+        self.user_id = user_id
+        self.is_student = is_student
+        self.db = db
 
 class VarStore:
     """名字→值 单映射，类型仅运行时检查，拒绝重名"""
@@ -22,7 +35,26 @@ class VarStore:
             return False
         self._map[name] = value
         return True
+    
+    def update(self, name: str, value: Val) -> bool:
+        """
+        存在则覆盖（跨类型），不存在则新建。
+        返回 True 表示覆盖，False 表示新建
+        """
+        # 1. 非法变量名直接拒
+        if not name or not name[0].isalpha() or not name.replace('_', '').isalnum():
+            print(f"[ERROR] 非法变量名: {name}")
+            return False
 
+        # 2. 已存在 → 直接覆盖（允许跨类型）
+        if name in self._map:
+            self._map[name] = value
+            return True
+
+        # 3. 不存在 → 新建
+        self._map[name] = value
+        return False
+    
     # ---------- 取值 ----------
     def get(self, name: str) -> Optional[Val]:
         return self._map.get(name)          # 不存在返回 None
@@ -35,14 +67,16 @@ class VarStore:
 
 
 class Builtin:
-    @staticmethod
-    def equal(args: List[Any]) -> bool:
+    
+    def __init__(self, rt: Runtime):
+        self.rt = rt
+    
+    def equal(self, args: List[Any]) -> bool:
         if len(args) != 2:
             raise ValueError("EQUAL 需要 2 个参数")
         return args[0] == args[1]
 
-    @staticmethod
-    def greater(args: List[Any]) -> bool:
+    def greater(self, args: List[Any]) -> bool:
         if len(args) != 2:
             raise ValueError("GREATER 需要 2 个参数")
         a, b = args
@@ -50,24 +84,41 @@ class Builtin:
             raise ValueError("GREATER 只支持 NUM 类型")
         return a > b
 
-    @staticmethod
-    def gpa(args: List[Any]) -> float:
-        if len(args) != 1:
-            raise ValueError("GPA 需要 1 个参数")
+    def gpa(self, args: list[Any]) -> float:
         sid = str(args[0])
-        # Todo
-        return # StudentsDB().get_gpa(sid) 后续实现
+        return self.rt.db.calc_gpa(sid)  
 
-    REGISTRY = {
-        "EQUAL": equal,
-        "GREATER": greater,
-        "GPA": gpa,
-    }
+    # ---------------- 新增：开课 ----------------
+    def open_course(self, args: list[Any]) -> bool:
+        if len(args) != 2:
+            raise ValueError("OPEN_COURSE 需要 2 个参数")
+        name, credit = args
+        if not isinstance(name, str) or not isinstance(credit, (int, float)):
+            raise ValueError("参数类型错误")
+        if self.rt.is_student:
+            print("[ERROR] 学生不允许开课")
+            return False
+        try:
+            self.rt.db.create_course(name, self.rt.user_id, float(credit))
+            print(f"[OPEN_COURSE] 开课成功：{name}（{credit}学分）")
+            return True
+        except Exception as e:
+            print(f"[OPEN_COURSE] 数据库错误：{e}")
+            return False
+    @property
+    def registry(self) -> dict[str, Callable]:
+        return {
+            "EQUAL": self.equal,
+            "GREATER": self.greater,
+            "GPA": self.gpa,
+            "OPEN_COURSE": self.open_course,
+        }
     
 class ExprEval:
-    def __init__(self, vars: VarStore):
+    def __init__(self, vars: VarStore, rt: Runtime):
         self.vars = vars
-
+        self.rt   = rt
+        self.builtin = Builtin(rt)
     # ---------- 单 token ----------
     def eval_token(self, tok: str) -> Any:
         tok = tok.strip()
@@ -97,10 +148,10 @@ class ExprEval:
 
         # 2. 函数调用 → 首 token 是函数名
         fname = tokens[0].upper()
-        if fname not in Builtin.REGISTRY:
-            raise ValueError(f"未知函数: {fname}")
-        args = [self.eval_token(t) for t in tokens[1:]]
-        return Builtin.REGISTRY[fname](args)
+        if fname in self.builtin.registry:
+            args = [self.eval_token(t) for t in tokens[1:]]
+            return self.builtin.registry[fname](args)
+        raise ValueError(f"未知函数: {fname}")
 
 
 class KeywordHub:
@@ -120,14 +171,16 @@ class KeywordHub:
 
 
 class MiniInterp:
-    def __init__(self, vars: VarStore, is_student: bool, user_id: int):
+    def __init__(self, vars: VarStore, is_student: bool, user_id: int, db: SchoolDB):
         self.vars = vars
-        self.kw   = KeywordHub()
+        self.rt   = Runtime(user_id, is_student, db)
+
+        # 2. 组装表达式求值器（Builtin 已在内部实例化）
+        self.expr = ExprEval(vars, self.rt)
+
+        # 3. 关键字注册
+        self.kw = KeywordHub()
         self._register_builtins()
-        self.func = Builtin.REGISTRY
-        self.expr = ExprEval(vars)
-        self.is_student = is_student
-        self.user_id  = user_id
 
     def _register_builtins(self):
         self.kw.register("REG",   self._kw_reg)
@@ -147,17 +200,14 @@ class MiniInterp:
             self.kw.dispatch(first.upper(), tail)
             return
 
-        # 2. 函数调用（首 token 是注册函数）
-        if first.upper() in self.func:
+        if first.upper() in self.expr.builtin.registry:
             try:
-                result = self.expr.eval_expr(line)   # 整行当表达式算
-                # 结果直接落盘到默认变量 "_"，供后续 IF/PRINT 使用
-                self.vars.reg("_", result)
+                result = self.expr.eval_expr(line)   # 内部调 registry
+                self.vars.update("result", result)           # 落盘默认变量
             except Exception as e:
                 print(f"[ERROR] 函数执行失败: {e}")
             return
 
-        # 3. 既不是关键字也不是函数
         print(f"[ERROR] 未知指令: {first}")
     
        # ---------- 关键字处理 ----------
@@ -173,7 +223,7 @@ class MiniInterp:
             return
 
         try:
-            val = ExprEval(self.vars).eval_expr(rhs)
+            val = self.expr.eval_expr(rhs)
         except Exception as e:
             print(f"[ERROR] 表达式求值失败: {e}")
             return
